@@ -1,3 +1,5 @@
+# RareEffect.R
+
 library(optparse)
 
 # Load source
@@ -15,7 +17,11 @@ option_list <- list(
         help="Path to group file (containing functional annotation of variants)"),
     make_option(c("--traitType"), type="character", default="",
         help="Trait type (quantitative or binary)"),
-    make_option(c("--plinkFile"), type="character", default="",
+    make_option(c("--bedFile"), type="character", default="",
+        help="Path to plink file containing rare variants"),
+    make_option(c("--bimFile"), type="character", default="",
+        help="Path to plink file containing rare variants"),
+    make_option(c("--famFile"), type="character", default="",
         help="Path to plink file containing rare variants"),
     make_option(c("--macThreshold"), type="integer", default=10,
         help="MAC threshold for ultra-rare variant collapsing"),
@@ -33,19 +39,13 @@ chrom <- args$chrom
 geneName <- args$geneName
 groupFile <- args$groupFile
 traitType <- args$traitType
-plinkFile <- args$plinkFile
+bedFile <- args$bedFile
+bimFile <- args$bimFile
+famFile <- args$famFile
 macThreshold <- args$macThreshold
 outputPrefix <- args$outputPrefix
-# rdaFile <- "/media/leelabsg-storage0/kisung/RVPRS/simulation/script_v3/result/step1/step1_sim1_1.rda"
-# chrom <- 1
-# geneName <- "PCSK9"
-# groupFile <- "/media/leelabsg-storage0/kisung/dnanexus/group_files/UKBexome_all_chr.txt"
-# traitType <- "quantitative"
-# plinkFile <- "/media/leelabsg-storage0/kisung/RVPRS/plink/UKBB_200k_WES_PCSK9_WB"
-# macThreshold <- 10
-# outputPrefix <- "output"
 
-# Load step 1 results
+# Load SAIGE step 1 results
 load(rdaFile)
 
 if (traitType == "binary") {
@@ -54,72 +54,94 @@ if (traitType == "binary") {
     modglmm$residuals <- sqrt(v) * (1 / (modglmm$fitted.values * (1 - modglmm$fitted.values)) * (modglmm$y - modglmm$fitted.values))
 }
 sigma_sq <- var(modglmm$residuals)
-n_samples <- length(modglmm$residuals)
+# n_samples <- length(modglmm$residuals)
+
+# For test
+library(SAIGE, lib.loc = "~/utils/SAIGE")
+chrom <- 1
+bedFile <- "/data/home/kisung/utils/SAIGE/extdata/input/plinkforGRM_1000samples_10kMarkers.bed"
+bimFile <- "/data/home/kisung/utils/SAIGE/extdata/input/plinkforGRM_1000samples_10kMarkers.bim"
+famFile <- "/data/home/kisung/utils/SAIGE/extdata/input/plinkforGRM_1000samples_10kMarkers.fam"
+groupFile <- "/data/home/kisung/utils/SAIGE/extdata/input/group_new_snpid.txt"
+traitType <- "quantitative"
+geneName <- "GENE1"
+macThreshold <- 10
+outputPrefix <- "test"
+
+# Set PLINK object
+bim <- fread(bimFile)
+fam <- fread(famFile)
+sampleID <- fam$V2
+n_samples <- length(sampleID)
+
+objGeno <- SAIGE::setGenoInput(bgenFile = "",
+        bgenFileIndex = "",
+        vcfFile = "",
+        vcfFileIndex = "",
+        vcfField = "",
+        savFile = "",
+        savFileIndex = "",
+        sampleFile = "",
+        bedFile=bedFile,
+        bimFile=bimFile,
+        famFile=famFile,
+        idstoIncludeFile = "",
+        rangestoIncludeFile = "",
+        chrom = "",
+        AlleleOrder = "alt-first",
+        sampleInModel = sampleID
+    )
+
 
 print("Analysis started")
 system.time({
     var_by_func_anno <- read_groupfile(groupFile, geneName)
 
+    # LoF
     if (length(var_by_func_anno[[1]]) == 0) {
         print("LoF variant does not exist.")
     }
+    # missense
     if (length(var_by_func_anno[[2]]) == 0) {
         print("missense variant does not exist.")
     }
+    # synonymous
     if (length(var_by_func_anno[[3]]) == 0) {
         print("synonymous variant does not exist.")
     }
 
-    pos_range <- get_range(var_by_func_anno)
-    print("Genomic position to read")
-    print(pos_range)
+    # Remove variants not in plink file
+    for (i in 1:3) {
+        var_by_func_anno[[i]] <- var_by_func_anno[[i]][which(var_by_func_anno[[i]] %in% objGeno$markerInfo$ID)]
+    }
 
-    bim <- fread(paste0(plinkFile, ".bim"))
-    fam <- fread(paste0(plinkFile, ".fam"))
-    start_idx <- max(which(bim$V4 < pos_range[[1]])) # Changed in v0.5
-    end_idx <- min(which(bim$V4 > pos_range[[2]])) # Changed in v0.5
+    # Read genotype matrix
+    lof_mat_collapsed <- collapse_matrix(objGeno, var_by_func_anno[[1]], sampleID, modglmm, macThreshold)
+    mis_mat_collapsed <- collapse_matrix(objGeno, var_by_func_anno[[2]], sampleID, modglmm, macThreshold)
+    syn_mat_collapsed <- collapse_matrix(objGeno, var_by_func_anno[[3]], sampleID, modglmm, macThreshold)
 
-    plink_matrix <- seqminer::readPlinkToMatrixByIndex(plinkFile, sampleIndex = 1:nrow(fam), markerIndex = start_idx:end_idx)
-    colnames(plink_matrix) <- bim$V2[start_idx:end_idx]
-    print("Dimension of genotype matrix")
-    print(dim(plink_matrix))
-    print("Number of LoF variants")
-    print(length(var_by_func_anno[[1]]))
-    print("Number of mis variants")
-    print(length(var_by_func_anno[[2]]))
-    print("Number of syn variants")
-    print(length(var_by_func_anno[[3]]))
-
-    # subsetting the genotype matrix
-    plink_matrix <- subset(plink_matrix, rownames(plink_matrix) %in% modglmm$sampleID)
-
-    lof_variants <- var_by_func_anno[[1]][which(var_by_func_anno[[1]] %in% bim$V2)]
-    mis_variants <- var_by_func_anno[[2]][which(var_by_func_anno[[2]] %in% bim$V2)]
-    syn_variants <- var_by_func_anno[[3]][which(var_by_func_anno[[3]] %in% bim$V2)]
-    print("Number of LoF variants in plink")
-    print(length(lof_variants))
-    print("Number of mis variants in plink")
-    print(length(mis_variants))
-    print("Number of syn variants in plink")
-    print(length(syn_variants))
-
-    plink_matrix_converted <- convert_missing(plink_matrix, ref_first = FALSE)
-    mat_by_func_anno <- split_plink_matrix(plink_matrix_converted,
-                        lof_variants,
-                        mis_variants,
-                        syn_variants,
-                        mac_threshold = macThreshold
-                    )
-    print("Dimension of genotype matrix by functional annotation")
-    print(dim(mat_by_func_anno[[1]]))
-    print(dim(mat_by_func_anno[[2]]))
-    print(dim(mat_by_func_anno[[3]]))
+    # Set column name
+    if (ncol(lof_mat_collapsed) > 0) {
+        colnames(lof_mat_collapsed)[ncol(lof_mat_collapsed)] <- "lof_UR"
+    }
+    if (ncol(mis_mat_collapsed) > 0) {
+        colnames(mis_mat_collapsed)[ncol(mis_mat_collapsed)] <- "mis_UR"
+    }
+    if (ncol(syn_mat_collapsed) > 0) {
+        colnames(syn_mat_collapsed)[ncol(syn_mat_collapsed)] <- "syn_UR"
+    }
 
     # Make genotype matrix
-    G <- cbind(mat_by_func_anno[[1]], mat_by_func_anno[[2]], mat_by_func_anno[[3]])
-    lof_ncol <- ncol(mat_by_func_anno[[1]])
-    mis_ncol <- ncol(mat_by_func_anno[[2]])
-    syn_ncol <- ncol(mat_by_func_anno[[3]])
+    nonempty_mat <- list()
+    if (ncol(lof_mat_collapsed) > 0) nonempty_mat <- c(nonempty_mat, list(lof_mat_collapsed))
+    if (ncol(mis_mat_collapsed) > 0) nonempty_mat <- c(nonempty_mat, list(mis_mat_collapsed))
+    if (ncol(syn_mat_collapsed) > 0) nonempty_mat <- c(nonempty_mat, list(syn_mat_collapsed))
+
+    G <- do.call(cbind, nonempty_mat)
+    lof_ncol <- ncol(lof_mat_collapsed)
+    mis_ncol <- ncol(mis_mat_collapsed)
+    syn_ncol <- ncol(syn_mat_collapsed)
+    
     print("Dimension of G")
     print(dim(G))
 
@@ -129,6 +151,7 @@ system.time({
     if (traitType == "binary") {
         vG_reordered <- as.vector(v) * G_reordered
     }
+    n_samples <- nrow(G_reordered)
     print("Dimension of G_reordered")
     print(dim(G_reordered))
 

@@ -1,3 +1,5 @@
+# RareEffect_function.R
+
 # Load packages
 
 if (!require(seqminer)) install.packages(seqminer)
@@ -8,24 +10,13 @@ if (!require(Matrix)) install.packages(Matrix)
 if (!require(sparsesvd)) install.packages(sparsesvd)
 if (!require(stringr)) install.packages(stringr)
 
-library(seqminer, quietly = TRUE)
+library(SAIGE, lib.loc = "~/utils/SAIGE", quietly = TRUE)
 library(data.table, quietly = TRUE)
 library(tibble, quietly = TRUE)
 library(dplyr, quietly = TRUE)
 library(Matrix, quietly = TRUE)
 library(sparsesvd, quietly = TRUE)
 library(stringr, quietly = TRUE)
-
-# Load PLINK file
-load_plink <- function(plink_prefix) {
-    plink_obj <- seqminer::openPlink(plink_prefix)
-    marker_index <- seq(nrow(plink_obj$bim))
-    sample_index <- seq(nrow(plink_obj$fam))
-    plink_matrix <- seqminer::readPlinkToMatrixByIndex(plink_prefix, sample_index, marker_index)
-    colnames(plink_matrix) <- plink_obj$bim$V2
-
-    return(plink_matrix)
-}
 
 # Read Group file and split variants by functional annotations
 read_groupfile <- function(groupfile_name, gene_name) {
@@ -66,6 +57,68 @@ read_groupfile <- function(groupfile_name, gene_name) {
     return(out)
 }
 
+read_matrix_by_one_marker <- function(objGeno, var_list, sampleID) {
+    n_samples <- length(sampleID)
+    mat <- Matrix::Matrix(0, nrow = n_samples, ncol = 0, sparse = TRUE)
+    if (length(var_list) == 0) {
+        print("No variants in the list")
+        return(mat)
+    }
+    for (i in 1:length(var_list)) {
+        t_GVec <- rep(0, n_samples)
+        idx <- which(var_list[i] == objGeno$markerInfo$ID)
+        SAIGE::Unified_getOneMarker(t_genoType = objGeno$genoType,
+            t_gIndex_prev = objGeno$markerInfo$genoIndex_prev[idx],
+            t_gIndex = objGeno$markerInfo$genoIndex[idx],
+            t_ref = "2",
+            t_alt = "1",
+            t_marker = objGeno$markerInfo$ID[idx],
+            t_pd = objGeno$markerInfo$POS[idx],
+            t_chr = toString(objGeno$markerInfo$CHROM[idx]),
+            t_altFreq = 0,
+            t_altCounts = 0,
+            t_missingRate = 0,
+            t_imputeInfo = 0,
+            t_isOutputIndexForMissing = TRUE,
+            t_indexForMissing = 0,
+            t_isOnlyOutputNonZero = FALSE,
+            t_indexForNonZero = 0,
+            t_GVec = t_GVec,
+            t_isImputation = FALSE
+        )
+
+        t_GVec_sp <- as(t_GVec, "sparseVector")
+        t_GVec_sp_mat <- as(t_GVec_sp, "Matrix")
+        
+        mat <- cbind(mat, t_GVec_sp_mat)
+    }
+
+    colnames(mat) <- var_list
+    rownames(mat) <- sampleID
+
+    return(mat)
+}
+
+collapse_matrix <- function(objGeno, var_list, sampleID, modglmm, macThreshold = 10) {
+    n_samples <- length(sampleID)
+    mat <- Matrix::Matrix(0, nrow = n_samples, ncol = 0, sparse = TRUE)
+    if (length(var_list) == 0) {
+        print("No variants in the list")
+        return(mat)
+    }
+    mat <- read_matrix_by_one_marker(objGeno, var_list, sampleID)
+    mat <- mat[which(rownames(mat) %in% modglmm$sampleID), ]
+    MAF <- colSums(mat) / (2 * nrow(mat))
+    idx <- which(((MAF < 0.01) | (MAF > 0.99)) & ((MAF < 1) & (MAF > 0)))
+    mat <- mat[, idx]
+    mat_rare <- mat[, which(colSums(mat) >= macThreshold)]
+    mat_UR <- mat[, which(colSums(mat) < macThreshold)]
+    UR_rowsum <- rowSums(mat_UR)
+    UR_rowsum[which(UR_rowsum > 1)] <- 1
+    mat_UR_collapsed <- cbind(mat_rare, UR_rowsum)
+    return(mat_UR_collapsed)
+}
+
 get_range <- function(v) {
     # input are vectors of variants by functional annotation
     start_pos <- Inf
@@ -88,94 +141,6 @@ get_range <- function(v) {
     return (list(start_pos, end_pos))
 }
 
-# Convert genotypes for missing / alt-first PLINK files
-convert_missing <- function(plink_matrix, ref_first=FALSE) {
-    if (ref_first == FALSE) {   # alt-first
-        # Convert missing genotypes to reference-homozygotes
-        plink_matrix[which(plink_matrix == -9)] <- 2
-        # Flip genotypes
-        plink_matrix <- 2 - plink_matrix
-    } else {
-        plink_matrix[which(plink_matrix == -9)] <- 0
-    }
-
-    return(plink_matrix)
-}
-
-
-# function for counting MAF of input genotype matrix (used in split_plink_matrix)
-count_maf <- function(geno_mat) {
-    mac_vec <- rep(0, ncol(geno_mat))
-    for (i in seq_len(ncol(geno_mat))) {
-        # n0 <- length(which(geno_mat[, i]) == 0)
-        n1 <- length(which(geno_mat[, i] == 1))
-        n2 <- length(which(geno_mat[, i] == 2))
-
-        mac <- n1 + 2 * n2
-        mac_vec[i] <- mac
-    }
-    maf_vec <- mac_vec / (2 * nrow(geno_mat))
-    common_list <- which(maf_vec > 0.01)
-
-    out <- list(mac_vec, common_list)
-    return(out)
-}
-
-
-# Split genotype matrix by function annotation (lof / mis / syn)
-split_plink_matrix <- function(plink_matrix, lof_var, mis_var, syn_var, mac_threshold = 10) {
-    lof_mat <- plink_matrix[, lof_var, drop = F]
-    mis_mat <- plink_matrix[, mis_var, drop = F]
-    syn_mat <- plink_matrix[, syn_var, drop = F]
-
-    # count MAF for each functional annotation
-    mac_lof <- count_maf(lof_mat)[[1]]
-    common_list_lof <- count_maf(lof_mat)[[2]]
-
-    mac_mis <- count_maf(mis_mat)[[1]]
-    common_list_mis <- count_maf(mis_mat)[[2]]
-
-    mac_syn <- count_maf(syn_mat)[[1]]
-    common_list_syn <- count_maf(syn_mat)[[2]]
-
-    # collapsing columns with MAC < threshold
-    collapse_lof <- which(mac_lof < mac_threshold)
-    collapse_mis <- which(mac_mis < mac_threshold)
-    collapse_syn <- which(mac_syn < mac_threshold)
-
-    if(length(collapse_lof) > 0) {
-        rowsum_lof <- rowSums(lof_mat[, collapse_lof, drop = F])
-        rowsum_lof[which(rowsum_lof > 1)] <- 1
-        lof_mat_collapsed <- cbind(lof_mat[, -c(collapse_lof, common_list_lof), drop = F], rowsum_lof)
-    } else if ((length(common_list_lof) > 0)) {
-        lof_mat_collapsed <- lof_mat[, -c(common_list_lof), drop = F]
-    } else {
-        lof_mat_collapsed <- lof_mat
-    }
-
-    if(length(collapse_mis) > 0) {
-        rowsum_mis <- rowSums(mis_mat[, collapse_mis, drop = F])
-        rowsum_mis[which(rowsum_mis > 1)] <- 1
-        mis_mat_collapsed <- cbind(mis_mat[, -c(collapse_mis, common_list_mis), drop = F], rowsum_mis)
-    } else if ((length(common_list_mis) > 0)) {
-        mis_mat_collapsed <- mis_mat[, -c(common_list_mis), drop = F]
-    } else {
-        mis_mat_collapsed <- mis_mat
-    }
-
-    if(length(collapse_syn) > 0) {
-        rowsum_syn <- rowSums(syn_mat[, collapse_syn, drop = F])
-        rowsum_syn[which(rowsum_syn > 1)] <- 1
-        syn_mat_collapsed <- cbind(syn_mat[, -c(collapse_syn, common_list_syn), drop = F], rowsum_syn)
-    } else if ((length(common_list_syn) > 0)) {
-        syn_mat_collapsed <- syn_mat[, -c(common_list_syn), drop = F]
-    } else {
-        syn_mat_collapsed <- syn_mat
-    }
-
-    out <- list(lof_mat_collapsed, mis_mat_collapsed, syn_mat_collapsed)
-    return(out)
-}
 
 # Read phenotype file
 read_pheno <- function(pheno_file, pheno_code, iid_col = "f.eid") {
