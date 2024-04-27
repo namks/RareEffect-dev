@@ -1,353 +1,289 @@
-# RareEffect.R
+# Read Group file and split variants by functional annotations
+read_groupfile <- function(groupfile_name, gene_name) {
+    groupfile <- file(groupfile_name, "r")
+    line <- 0
+    var <- NULL
+    anno <- NULL
 
-library(optparse)
+    while (TRUE) {
+        line <- line + 1
+        marker_group_line <- readLines(groupfile, n = 1)
 
-# Load source
-source("/app/RVPRS_function.R")
-source("/app/Firth.R")
+        if (length(marker_group_line) == 0) {
+            break
+        }
 
-option_list <- list(
-    make_option(c("--rdaFile"), type="character", default="",
-        help="Path to rda file from SAIGE step 1"),
-    make_option(c("--chrom"), type="character", default="",
-        help="Chromosome"),
-    make_option(c("--geneName"), type="character", default="",
-        help="Gene name to analyze"),
-    make_option(c("--groupFile"), type="character", default="",
-        help="Path to group file (containing functional annotation of variants)"),
-    make_option(c("--traitType"), type="character", default="",
-        help="Trait type (quantitative or binary)"),
-    make_option(c("--bedFile"), type="character", default="",
-        help="Path to plink file containing rare variants"),
-    make_option(c("--bimFile"), type="character", default="",
-        help="Path to plink file containing rare variants"),
-    make_option(c("--famFile"), type="character", default="",
-        help="Path to plink file containing rare variants"),
-    make_option(c("--macThreshold"), type="integer", default=10,
-        help="MAC threshold for ultra-rare variant collapsing"),
-    make_option(c("--outputPrefix"), type="character", default="",
-        help="Path to save output (without extension and gene name)")
-)
+        marker_group_line_list <- strsplit(marker_group_line, split = c(" +", "\t"))[[1]]
 
-## list of options
-parser <- OptionParser(usage="%prog [options]", option_list=option_list)
-args <- parse_args(parser, positional_arguments = FALSE)
-print(args)
+        if (marker_group_line_list[1] == gene_name) {
+            if (marker_group_line_list[2] == "var") {
+                var <- marker_group_line_list
+            } else {
+                anno <- marker_group_line_list
+            }
+        }
+    }
 
-rdaFile <- args$rdaFile
-chrom <- args$chrom
-geneName <- args$geneName
-groupFile <- args$groupFile
-traitType <- args$traitType
-bedFile <- args$bedFile
-bimFile <- args$bimFile
-famFile <- args$famFile
-macThreshold <- args$macThreshold
-outputPrefix <- args$outputPrefix
+    lof_idx <- which(anno == "lof")
+    mis_idx <- which(anno == "missense")
+    syn_idx <- which(anno == "synonymous")
 
-# Load SAIGE step 1 results
-load(rdaFile)
+    lof_var <- var[lof_idx]
+    mis_var <- var[mis_idx]
+    syn_var <- var[syn_idx]
 
-if (traitType == "binary") {
-    # modglmm$residuals <- modglmm$Y - modglmm$linear.predictors
-    v <- modglmm$fitted.values * (1 - modglmm$fitted.values)    # v_i = mu_i * (1 - mu_i)
-    modglmm$residuals <- sqrt(v) * (1 / (modglmm$fitted.values * (1 - modglmm$fitted.values)) * (modglmm$y - modglmm$fitted.values))
+    out <- list(lof_var, mis_var, syn_var)
+    close(groupfile)
+    return(out)
 }
-sigma_sq <- var(modglmm$residuals)
-# n_samples <- length(modglmm$residuals)
 
-# For test
-library(SAIGE, lib.loc = "~/utils/SAIGE")
-chrom <- 1
-bedFile <- "/data/home/kisung/utils/SAIGE/extdata/input/plinkforGRM_1000samples_10kMarkers.bed"
-bimFile <- "/data/home/kisung/utils/SAIGE/extdata/input/plinkforGRM_1000samples_10kMarkers.bim"
-famFile <- "/data/home/kisung/utils/SAIGE/extdata/input/plinkforGRM_1000samples_10kMarkers.fam"
-groupFile <- "/data/home/kisung/utils/SAIGE/extdata/input/group_new_snpid.txt"
-traitType <- "quantitative"
-geneName <- "GENE1"
-macThreshold <- 10
-outputPrefix <- "test"
-
-# Set PLINK object
-bim <- fread(bimFile)
-fam <- fread(famFile)
-sampleID <- fam$V2
-n_samples <- length(sampleID)
-
-objGeno <- SAIGE::setGenoInput(bgenFile = "",
-        bgenFileIndex = "",
-        vcfFile = "",
-        vcfFileIndex = "",
-        vcfField = "",
-        savFile = "",
-        savFileIndex = "",
-        sampleFile = "",
-        bedFile=bedFile,
-        bimFile=bimFile,
-        famFile=famFile,
-        idstoIncludeFile = "",
-        rangestoIncludeFile = "",
-        chrom = "",
-        AlleleOrder = "alt-first",
-        sampleInModel = sampleID
-    )
-
-
-print("Analysis started")
-system.time({
-    var_by_func_anno <- read_groupfile(groupFile, geneName)
-
-    # LoF
-    if (length(var_by_func_anno[[1]]) == 0) {
-        print("LoF variant does not exist.")
+read_matrix_by_one_marker <- function(objGeno, var_list, sampleID) {
+    n_samples <- length(sampleID)
+    mat <- Matrix::Matrix(0, nrow = n_samples, ncol = 0, sparse = TRUE)
+    if (length(var_list) == 0) {
+        print("No variants in the list")
+        return(mat)
     }
-    # missense
-    if (length(var_by_func_anno[[2]]) == 0) {
-        print("missense variant does not exist.")
-    }
-    # synonymous
-    if (length(var_by_func_anno[[3]]) == 0) {
-        print("synonymous variant does not exist.")
+    for (i in 1:length(var_list)) {
+        t_GVec <- rep(0, n_samples)
+        idx <- which(var_list[i] == objGeno$markerInfo$ID)
+        SAIGE::Unified_getOneMarker(t_genoType = objGeno$genoType,
+            t_gIndex_prev = objGeno$markerInfo$genoIndex_prev[idx],
+            t_gIndex = objGeno$markerInfo$genoIndex[idx],
+            t_ref = "2",
+            t_alt = "1",
+            t_marker = objGeno$markerInfo$ID[idx],
+            t_pd = objGeno$markerInfo$POS[idx],
+            t_chr = toString(objGeno$markerInfo$CHROM[idx]),
+            t_altFreq = 0,
+            t_altCounts = 0,
+            t_missingRate = 0,
+            t_imputeInfo = 0,
+            t_isOutputIndexForMissing = TRUE,
+            t_indexForMissing = 0,
+            t_isOnlyOutputNonZero = FALSE,
+            t_indexForNonZero = 0,
+            t_GVec = t_GVec,
+            t_isImputation = FALSE
+        )
+
+        t_GVec_sp <- as(t_GVec, "sparseVector")
+        t_GVec_sp_mat <- as(t_GVec_sp, "Matrix")
+
+        mat <- cbind(mat, t_GVec_sp_mat)
     }
 
-    # Remove variants not in plink file
+    colnames(mat) <- var_list
+    rownames(mat) <- sampleID
+
+    return(mat)
+}
+
+collapse_matrix <- function(objGeno, var_list, sampleID, modglmm, macThreshold = 10) {
+    n_samples <- length(sampleID)
+    mat <- Matrix::Matrix(0, nrow = n_samples, ncol = 0, sparse = TRUE)
+    if (length(var_list) == 0) {
+        print("No variants in the list")
+        return(mat)
+    }
+    mat <- read_matrix_by_one_marker(objGeno, var_list, sampleID)
+    mat <- mat[which(rownames(mat) %in% modglmm$sampleID), ]
+    MAF <- colSums(mat) / (2 * nrow(mat))
+    idx <- which(((MAF < 0.01) | (MAF > 0.99)) & ((MAF < 1) & (MAF > 0)))
+    mat <- mat[, idx]
+    mat_rare <- mat[, which(colSums(mat) >= macThreshold)]
+    mat_UR <- mat[, which(colSums(mat) < macThreshold)]
+    UR_rowsum <- rowSums(mat_UR)
+    UR_rowsum[which(UR_rowsum > 1)] <- 1
+    mat_UR_collapsed <- cbind(mat_rare, UR_rowsum)
+    return(mat_UR_collapsed)
+}
+
+get_range <- function(v) {
+    # input are vectors of variants by functional annotation
+    start_pos <- Inf
+    end_pos <- 0
     for (i in 1:3) {
-        var_by_func_anno[[i]] <- var_by_func_anno[[i]][which(var_by_func_anno[[i]] %in% objGeno$markerInfo$ID)]
+        if (length(v[[i]]) > 0) {
+            pos <- as.numeric(str_split_fixed(v[[i]], ":", 4)[,2]) # Modified in 0.3
+            sub_start_pos <- min(pos)
+            sub_end_pos <- max(pos)
+            print(sub_start_pos)
+            print(sub_end_pos)
+            if (start_pos > sub_start_pos) {
+                start_pos <- sub_start_pos
+            }
+            if (end_pos < sub_end_pos) {
+                end_pos <- sub_end_pos
+            }
+        }
+    }
+    return (list(start_pos, end_pos))
+}
+
+
+# Read phenotype file
+read_pheno <- function(pheno_file, pheno_code, iid_col = "f.eid") {
+    pheno <- data.table::fread(pheno_file, quote = "")
+    out <- subset(pheno, select = c(iid_col, pheno_code))
+    return(out)
+}
+
+
+calc_log_lik <- function(delta, S, UtY, Y_UUtY) {
+    k <- length(S)
+    n <- nrow(Y_UUtY)
+
+    log_lik1 <- 0
+    for (i in 1:k) {
+        log_lik1 <- log_lik1 + (UtY[i, ])^2 / (S[i] + delta)
     }
 
-    # Read genotype matrix
-    lof_mat_collapsed <- collapse_matrix(objGeno, var_by_func_anno[[1]], sampleID, modglmm, macThreshold)
-    mis_mat_collapsed <- collapse_matrix(objGeno, var_by_func_anno[[2]], sampleID, modglmm, macThreshold)
-    syn_mat_collapsed <- collapse_matrix(objGeno, var_by_func_anno[[3]], sampleID, modglmm, macThreshold)
+    log_lik2 <- 1 / delta * sum((Y_UUtY)^2)
 
-    # Set column name
-    if (ncol(lof_mat_collapsed) > 0) {
-        colnames(lof_mat_collapsed)[ncol(lof_mat_collapsed)] <- "lof_UR"
-    }
-    if (ncol(mis_mat_collapsed) > 0) {
-        colnames(mis_mat_collapsed)[ncol(mis_mat_collapsed)] <- "mis_UR"
-    }
-    if (ncol(syn_mat_collapsed) > 0) {
-        colnames(syn_mat_collapsed)[ncol(syn_mat_collapsed)] <- "syn_UR"
+    out <- -0.5 * (n * log(2 * pi) + sum(log(S + delta)) + (n - k) * log(delta)
+                   + n + n * log(1 / n * (log_lik1 + log_lik2)))
+
+    return(as.numeric(out))
+}
+
+calc_post_beta <- function(K, G, delta, S, UtY, U) {
+    K_sparse <- as(K, "dgCMatrix")
+    if (length(S) == 1) {
+        S <- as.matrix(S)
     }
 
-    # Make genotype matrix
-    nonempty_mat <- list()
-    if (ncol(lof_mat_collapsed) > 0) nonempty_mat <- c(nonempty_mat, list(lof_mat_collapsed))
-    if (ncol(mis_mat_collapsed) > 0) nonempty_mat <- c(nonempty_mat, list(mis_mat_collapsed))
-    if (ncol(syn_mat_collapsed) > 0) nonempty_mat <- c(nonempty_mat, list(syn_mat_collapsed))
+    out <- K_sparse %*% t(G) %*% U %*% diag(1 / (S + delta)) %*% (UtY)
+    return(out)
+}
 
-    G <- do.call(cbind, nonempty_mat)
-    lof_ncol <- ncol(lof_mat_collapsed)
-    mis_ncol <- ncol(mis_mat_collapsed)
-    syn_ncol <- ncol(syn_mat_collapsed)
-    
-    print("Dimension of G")
+# Run FaST-LMM to obtain posterior beta
+fast_lmm <- function(G, Y) {
+    # if sum(G) == 0, let effect size = 0
+    print("Estimating beta using FaST-LMM")
     print(dim(G))
-
-    # Obtain residual vector and genotype matrix with the same order
-    y_tilde <- cbind(modglmm$sampleID, modglmm$residuals)
-    G_reordered <- G[match(y_tilde[,1], rownames(G)),]
-    if (traitType == "binary") {
-        vG_reordered <- as.vector(v) * G_reordered
+    G[is.na(G)] <- 0
+    print(sum(G))
+    if (sum(G, na.rm = T) == 0) {
+        return (list(as.matrix(0), 0, 1e6))
     }
-    n_samples <- nrow(G_reordered)
-    print("Dimension of G_reordered")
-    print(dim(G_reordered))
+    Y <- as.matrix(Y)
+    K <- diag(1, nrow = ncol(G))
+    L <- chol(K)
+    W <- G %*% L
+    W_sparse <- as(W, "dgCMatrix")
+    svd_mat <- sparsesvd::sparsesvd(W_sparse)
 
-    post_beta_lof <- NULL
-    post_beta_mis <- NULL
-    post_beta_syn <- NULL
+    U <- svd_mat$u
+    S <- (svd_mat$d)^2
 
-    if (lof_ncol > 0) {
-        if (traitType == "binary") {
-            fast_lmm_lof <- fast_lmm(G = vG_reordered[,c(1:lof_ncol), drop = F], Y = as.numeric(y_tilde[,2]))
-        } else {
-            fast_lmm_lof <- fast_lmm(G = G_reordered[,c(1:lof_ncol), drop = F], Y = as.numeric(y_tilde[,2]))
-        }
-        post_beta_lof <- fast_lmm_lof[[1]]
-        tr_GtG_lof <- fast_lmm_lof[[2]]
-        delta_lof <- fast_lmm_lof[[3]]
-        # h2_lof <- (sigma_sq / delta_lof) * tr_GtG_lof / ((sigma_sq / delta_lof) * tr_GtG_lof + sigma_sq * n_samples)
-        tau_lof <- as.numeric(sigma_sq / delta_lof)
+    UtY <- t(U) %*% Y
 
-        # Adjust variance component tau
-        if (traitType == "binary") {
-            tau_lof_mom_marginal <- mom_estimator_marginal(G = vG_reordered[,c(1:lof_ncol), drop = F], y = as.numeric(y_tilde[,2]))
-            tau_mom_joint <- mom_estimator_joint(
-                G1 = vG_reordered[,c(1:lof_ncol), drop = F],
-                G2 = vG_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F],
-                G3 = vG_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F],
-                y = as.numeric(y_tilde[,2])
-            )
-        } else {
-            tau_lof_mom_marginal <- mom_estimator_marginal(G = G_reordered[,c(1:lof_ncol), drop = F], y = as.numeric(y_tilde[,2]))
-            tau_mom_joint <- mom_estimator_joint(
-                G1 = G_reordered[,c(1:lof_ncol), drop = F],
-                G2 = G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F],
-                G3 = G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F],
-                y = as.numeric(y_tilde[,2])
-            )
-        }
-        tau_lof_adj <- tau_lof * tau_mom_joint[1] / tau_lof_mom_marginal[1]
-        if (traitType == "binary") {
-            h2_lof_adj <- max(tau_lof_adj * tr_GtG_lof / (tau_lof_adj * tr_GtG_lof + sigma_sq * sum(1/v)), 0)
-        } else {
-            h2_lof_adj <- max(tau_lof_adj * tr_GtG_lof / (tau_lof_adj * tr_GtG_lof + sigma_sq * n_samples), 0)
-        }
-    }
+    # Y_UUtY = Y - UUtY
+    Y_UUtY <- Y - U %*% UtY
 
-    if (mis_ncol > 0) {
-        if (traitType == "binary") {
-            fast_lmm_mis <- fast_lmm(G = vG_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F], Y = as.numeric(y_tilde[,2]))
-        } else {
-            fast_lmm_mis <- fast_lmm(G = G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F], Y = as.numeric(y_tilde[,2]))
-        }
-        post_beta_mis <- fast_lmm_mis[[1]]
-        tr_GtG_mis <- fast_lmm_mis[[2]]
-        delta_mis <- fast_lmm_mis[[3]]
-        # h2_mis <- (sigma_sq / delta_mis) * tr_GtG_mis / ((sigma_sq / delta_mis) * tr_GtG_mis + sigma_sq * n_samples)
-        tau_mis <- as.numeric(sigma_sq / delta_mis)
+    opt <- optim(par = 1, fn = calc_log_lik, S = S, UtY = UtY, Y_UUtY = Y_UUtY,
+                 method = c("Brent"), lower = 0, upper = 1e6, control = list(fnscale = -1))
+    opt_delta <- opt$par
 
-        # Adjust variance component tau
-        if (traitType == "binary") {
-            tau_mis_mom_marginal <- mom_estimator_marginal(G = vG_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F], y = as.numeric(y_tilde[,2]))
-        } else {
-            tau_mis_mom_marginal <- mom_estimator_marginal(G = G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F], y = as.numeric(y_tilde[,2]))
-        }
-        tau_mis_adj <- tau_mis * tau_mom_joint[2] / tau_mis_mom_marginal[1]
-        if (traitType == "binary") {
-            h2_mis_adj <- max(tau_mis_adj * tr_GtG_mis / (tau_mis_adj * tr_GtG_mis + sigma_sq * sum(1/v)), 0)
-        } else {
-            h2_mis_adj <- max(tau_mis_adj * tr_GtG_mis / (tau_mis_adj * tr_GtG_mis + sigma_sq * n_samples), 0)
-        }
-    }
+    GtG <- t(G) %*% G
+    tr_GtG <- sum(diag(GtG %*% K))
 
-    if (syn_ncol > 0) {
-        if (traitType == "binary") {
-            fast_lmm_syn <- fast_lmm(G = vG_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F], Y = as.numeric(y_tilde[,2]))
-        } else {
-            fast_lmm_syn <- fast_lmm(G = G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F], Y = as.numeric(y_tilde[,2]))
-        }
-        post_beta_syn <- fast_lmm_syn[[1]]
-        tr_GtG_syn <- fast_lmm_syn[[2]]
-        delta_syn <- fast_lmm_syn[[3]]
-        # h2_syn <- (sigma_sq / delta_syn) * tr_GtG_syn / ((sigma_sq / delta_syn) * tr_GtG_syn + sigma_sq * n_samples)
-        tau_syn <- as.numeric(sigma_sq / delta_syn)
+    post_beta <- calc_post_beta(K, G, opt_delta, S, UtY, U)
 
-        # Adjust variance component tau
-        if (traitType == "binary") {
-            tau_syn_mom_marginal <- mom_estimator_marginal(G = vG_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F], y = as.numeric(y_tilde[,2]))
-        } else {
-            tau_syn_mom_marginal <- mom_estimator_marginal(G = G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F], y = as.numeric(y_tilde[,2]))
-        }
-        tau_syn_adj <- tau_syn * tau_mom_joint[3] / tau_syn_mom_marginal[1]
-        if (traitType == "binary") {
-            h2_syn_adj <- max(tau_syn_adj * tr_GtG_syn / (tau_syn_adj * tr_GtG_syn + sigma_sq * sum(1/v)), 0)
-        } else {
-            h2_syn_adj <- max(tau_syn_adj * tr_GtG_syn / (tau_syn_adj * tr_GtG_syn + sigma_sq * n_samples), 0)
-        }
-    }
+    return (list(post_beta, tr_GtG, opt_delta, GtG))
+}
 
-    # Obtain effect size jointly
-    if ((tau_lof_adj > 0) & (tau_mis_adj > 0) & (tau_syn_adj > 0)) {
-        if (traitType == "binary") {
-            post_beta <- calculate_joint_blup(
-                G1 = vG_reordered[,c(1:lof_ncol), drop = F],
-                G2 = vG_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F],
-                G3 = vG_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F],
-                tau1 = tau_lof_adj,
-                tau2 = tau_mis_adj,
-                tau3 = tau_syn_adj,
-                Sigma1 = diag(1, ncol(vG_reordered[,c(1:lof_ncol), drop = F])),
-                Sigma2 = diag(1, ncol(vG_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F])),
-                Sigma3 = diag(1, ncol(vG_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F])),
-                psi = as.numeric(sigma_sq),
-                y = as.numeric(y_tilde[,2])
-            )
-        } else {
-            post_beta <- calculate_joint_blup(
-                G1 = G_reordered[,c(1:lof_ncol), drop = F],
-                G2 = G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F],
-                G3 = G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F],
-                tau1 = tau_lof_adj,
-                tau2 = tau_mis_adj,
-                tau3 = tau_syn_adj,
-                Sigma1 = diag(1, ncol(G_reordered[,c(1:lof_ncol), drop = F])),
-                Sigma2 = diag(1, ncol(G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F])),
-                Sigma3 = diag(1, ncol(G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F])),
-                psi = as.numeric(sigma_sq),
-                y = as.numeric(y_tilde[,2])
-            )
-        }
-    } else {
-        # If not, calculate beta marginally
-        post_beta <- as.vector(rbind(post_beta_lof, post_beta_mis, post_beta_syn))
-    }
 
-    post_beta <- as.vector(post_beta)
+calc_gene_effect_size <- function(G, lof_ncol, post_beta, Y) {
+    beta_lof <- post_beta[1:lof_ncol]
+    beta_lof <- abs(beta_lof)
+    lof_prs <- G[, 1:lof_ncol, drop = F] %*% beta_lof
+    lof_prs_norm <- (lof_prs - mean(lof_prs)) / sd(lof_prs)
+    m1 <- lm(Y ~ lof_prs_norm[, 1])
 
-    # Apply Firth bias correction for binary phenotype
-    if (traitType == "binary") {
-        y_binary <- cbind(modglmm$sampleID, modglmm$y)
-        offset1 <- modglmm$linear.predictors - modglmm$coefficients[1]
-        l2.var = 1
-        maxit = 50
+    return(m1$coefficients[2])
+}
 
-        # LoF
-        G.lof.sp <- as(G_reordered[,c(1:lof_ncol), drop = F], "sparseMatrix")
-        nMarker.lof <- ncol(G.lof.sp)
-        out_single_wL2_lof_sparse <- Run_Firth_MultiVar_Single(G.lof.sp, modglmm$obj.noK, as.numeric(y_binary[,2]), offset1, nMarker.lof, l2.var=1/(2*tau_lof_adj), Is.Fast=FALSE, Is.Sparse=TRUE)[,2]
-        print(out_single_wL2_lof_sparse)
+mom_estimator_marginal <- function(G, y) {
+    n <- length(y)
+    G <- as(G, "dgCMatrix")
+    G[is.na(G)] <- 0
+    # tr(G Sigma G^T G Sigma G^T) = sum((G Sigma G^T )^2) = sum(G^T G Sigma)^2
+    Sigma <- diag(1, nrow = ncol(G))
 
-        # mis
-        G.mis.sp <- as(G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F], "sparseMatrix")
-        nMarker.mis <- ncol(G.mis.sp)
-        out_single_wL2_mis_sparse <- Run_Firth_MultiVar_Single(G.mis.sp, modglmm$obj.noK, as.numeric(y_binary[,2]), offset1, nMarker.mis, l2.var=1/(2*tau_mis_adj), Is.Fast=FALSE, Is.Sparse=TRUE)[,2]
-        print(out_single_wL2_mis_sparse)
+    system.time({
+        t1 <- sum((crossprod(G) %*% Sigma)^2)
+    })
+    t2 <- sum(diag(crossprod(G) %*% Sigma))
+    A <- matrix(c(t1, t2, t2, n), ncol = 2)
+    c1 <- as.numeric(t(y) %*% G %*% Sigma %*% t(G) %*% y)
+    c2 <- sum(y^2)
+    b <- matrix(c(c1, c2), ncol = 1)
+    var_comp <- solve(A) %*% b
+    print(var_comp)
+    # h2_mom_marginal <- var_comp[1, 1] / sum(var_comp)
+    return (var_comp)
+}
 
-        # syn
-        G.syn.sp <- as(G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F], "sparseMatrix")
-        nMarker.syn <- ncol(G.syn.sp)
-        out_single_wL2_syn_sparse <- Run_Firth_MultiVar_Single(G.syn.sp, modglmm$obj.noK, as.numeric(y_binary[,2]), offset1, nMarker.syn, l2.var=1/(2*tau_syn_adj), Is.Fast=FALSE, Is.Sparse=TRUE)[,2]
-        print(out_single_wL2_syn_sparse)
+mom_estimator_joint <- function(G1, G2, G3, y) {
+    n <- length(y)
 
-        beta_firth <- c(out_single_wL2_lof_sparse, out_single_wL2_mis_sparse, out_single_wL2_syn_sparse)
-        effect <- ifelse(abs(post_beta) < log(2), post_beta, beta_firth)
-    } else {
-        effect <- post_beta
-    }
+    G1 <- as(G1, "dgCMatrix")
+    G1[is.na(G1)] <- 0
+    G2 <- as(G2, "dgCMatrix")
+    G2[is.na(G2)] <- 0
+    G3 <- as(G3, "dgCMatrix")
+    G3[is.na(G3)] <- 0
+    Sigma1 <- diag(1, nrow = ncol(G1)) # L1 %*% t(L1)
+    Sigma2 <- diag(1, nrow = ncol(G2)) # L2 %*% t(L2)
+    Sigma3 <- diag(1, nrow = ncol(G3)) # L3 %*% t(L3)
 
-    # output related to single-variant effect size
-    variant <- c(colnames(mat_by_func_anno[[1]]), colnames(mat_by_func_anno[[2]]), colnames(mat_by_func_anno[[3]]))
+    L1 <- chol(Sigma1)
+    L2 <- chol(Sigma2)
+    L3 <- chol(Sigma3)
 
-    if (lof_ncol == 1) {
-        sgn <- sign(post_beta[1])
-    } else {
-        MAC <- colSums(G_reordered[,c(1:(lof_ncol - 1)), drop = F])
-        sgn <- sign(sum(MAC * post_beta[c(1:(lof_ncol - 1))]))
-    }
+    t11 <- sum((crossprod(G1) %*% Sigma1)^2)
+    t22 <- sum((crossprod(G2) %*% Sigma2)^2)
+    t33 <- sum((crossprod(G3) %*% Sigma3)^2)
 
-    h2_all <- sum(h2_lof_adj, h2_mis_adj, h2_syn_adj) * sgn
-    h2 <- c(h2_lof_adj, h2_mis_adj, h2_syn_adj, h2_all)
-    group <- c("LoF", "mis", "syn", "all")
+    t12 <- sum((t(G1 %*% L1) %*% (G2 %*% L2))^2)
+    t13 <- sum((t(G1 %*% L1) %*% (G3 %*% L3))^2)
+    t23 <- sum((t(G2 %*% L2) %*% (G3 %*% L3))^2)
 
-    tau_lof_out <- c(tau_lof, as.numeric(tau_lof_mom_marginal[1, 1]), as.numeric(tau_mom_joint[1, 1]))
-    tau_mis_out <- c(tau_mis, as.numeric(tau_mis_mom_marginal[1, 1]), as.numeric(tau_mom_joint[2, 1]))
-    tau_syn_out <- c(tau_syn, as.numeric(tau_syn_mom_marginal[1, 1]), as.numeric(tau_mom_joint[3, 1]))
-    tau_out <- rbind(tau_lof_out, tau_mis_out, tau_syn_out)
+    t14 <- sum(diag(t(G1) %*% G1 %*% Sigma1))
+    t24 <- sum(diag(t(G2) %*% G2 %*% Sigma2))
+    t34 <- sum(diag(t(G3) %*% G3 %*% Sigma3))
 
-    effect_out <- cbind(variant, effect)
-    h2_out <- rbind(group, h2)
+    A <- matrix(c(t11, t12, t13, t14, t12, t22, t23, t24, t13, t23, t33, t34, t14, t24, t34, n), ncol = 4)
 
-    effect_outname <- paste0(outputPrefix, "_effect.txt")
-    h2_outname <- paste0(outputPrefix, "_h2.txt")
-    tau_outname <- paste0(outputPrefix, "_tau.txt")
+    c1 <- as.numeric(t(y) %*% G1 %*% Sigma1 %*% t(G1) %*% y)
+    c2 <- as.numeric(t(y) %*% G2 %*% Sigma2 %*% t(G2) %*% y)
+    c3 <- as.numeric(t(y) %*% G3 %*% Sigma3 %*% t(G3) %*% y)
+    c4 <- sum(y^2)
+    b <- matrix(c(c1, c2, c3, c4), ncol = 1)
 
-    print(effect_out)
-    print(h2_out)
-    write.table(effect_out, effect_outname, row.names=F, quote=F)
-    write.table(h2_out, h2_outname, row.names=F, col.names=F, quote=F)
-    write.table(tau_out, tau_outname, row.names=F, col.names=F, quote=F)
-})
-print("Analysis completed.")
+    var_comp <- solve(A) %*% b
+    print(var_comp)
+    #  h2_mom_joint <- c(var_comp[1, 1], var_comp[2, 1], var_comp[3, 1]) / sum(var_comp)
+    return (var_comp)
+}
+
+# calculate_single_blup <- function(G, delta, Sigma, y) {
+#     # Henderson Mixed Model Equation: beta = (G^T G + delta * Sigma^-1)^-1 * G^T y
+#     G <- as(G, "dgCMatrix")
+#     beta <- solve(t(G) %*% G + delta * solve(Sigma)) %*% t(G) %*% y
+#     return (beta)
+# }
+
+calculate_joint_blup <- function(G1, G2, G3, tau1, tau2, tau3, Sigma1, Sigma2, Sigma3, psi, y) {
+    G1 <- as(G1, "dgCMatrix")
+    G2 <- as(G2, "dgCMatrix")
+    G3 <- as(G3, "dgCMatrix")
+    G <- cbind(G1, G2, G3)
+    G[is.na(G)] <- 0
+
+    Sigma <- bdiag(tau1 * Sigma1, tau2 * Sigma2, tau3 * Sigma3)
+    beta <- solve(t(G) %*% G / psi + solve(Sigma)) %*% t(G) %*% y / psi
+    return (beta)
+}
