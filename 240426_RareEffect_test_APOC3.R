@@ -1,5 +1,5 @@
 # For test
-source("~/code/RareEffect-dev/RVPRS_function.R")
+source("~/code/RareEffect-dev/RareEffect.R")
 source("~/code/RareEffect-dev/Firth.R")
 library(SAIGE, lib.loc = "~/utils/SAIGE")
 
@@ -118,7 +118,7 @@ system.time({
     # G <- as.matrix(G)
     G_reordered <- G[match(y_tilde[,1], rownames(G)),]
     if (traitType == "binary") {
-        vG_reordered <- as.vector(v) * G_reordered
+        vG_reordered <- as.vector(sqrt(v)) * G_reordered    # Sigma_e^(-1/2) G
     }
     n_samples <- nrow(G_reordered)
     print("Dimension of G_reordered")
@@ -259,6 +259,16 @@ system.time({
 
     post_beta <- as.vector(post_beta)
 
+    # Obtain prediction error variance (PEV)
+    diag(GtG_lof) <- diag(GtG_lof) + as.numeric(sigma_sq) / tau_lof_adj
+    diag(GtG_mis) <- diag(GtG_mis) + as.numeric(sigma_sq) / tau_mis_adj
+    diag(GtG_syn) <- diag(GtG_syn) + as.numeric(sigma_sq) / tau_syn_adj
+
+    PEV_lof <- diag(solve(GtG_lof))
+    PEV_mis <- diag(solve(GtG_mis))
+    PEV_syn <- diag(solve(GtG_syn))
+    PEV_all <- c(PEV_lof, PEV_mis, PEV_syn)
+
     # Apply Firth bias correction for binary phenotype
     if (traitType == "binary") {
         y_binary <- cbind(modglmm$sampleID, modglmm$y)
@@ -290,6 +300,7 @@ system.time({
         effect <- post_beta
     }
 
+    effect <- as.vector(effect)
     # output related to single-variant effect size
     variant <- colnames(G)
 
@@ -309,9 +320,9 @@ system.time({
     tau_syn_out <- c(tau_syn, as.numeric(tau_syn_mom_marginal[1, 1]), as.numeric(tau_mom_joint[3, 1]))
     tau_out <- rbind(tau_lof_out, tau_mis_out, tau_syn_out)
 
-    effect_out <- cbind(variant, effect)
+    effect_out <- as.data.frame(cbind(variant, effect, PEV_all))
     h2_out <- rbind(group, h2)
-
+    
     effect_outname <- paste0(outputPrefix, "_effect.txt")
     h2_outname <- paste0(outputPrefix, "_h2.txt")
     tau_outname <- paste0(outputPrefix, "_tau.txt")
