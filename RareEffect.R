@@ -67,6 +67,7 @@ read_matrix_by_one_marker <- function(objGeno, var_list, sampleID) {
             t_isImputation = FALSE
         )
 
+	t_GVec[t_GVec < 0] <- 0     # Convert missing to zero
         t_GVec_sp <- as(t_GVec, "sparseVector")
         t_GVec_sp_mat <- as(t_GVec_sp, "Matrix")
 

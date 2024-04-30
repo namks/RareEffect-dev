@@ -2,9 +2,11 @@
 source("~/code/RareEffect-dev/RareEffect.R")
 source("~/code/RareEffect-dev/Firth.R")
 library(SAIGE, lib.loc = "~/utils/SAIGE")
+library(data.table)
+library(Matrix)
 
 # Example input
-rdaFile <- "~/data/RareEffect/output/step1_train/step1_train_f.30760.0.0.rda"   # HDL step 1 result
+rdaFile <- "~/data/RareEffect/output/step1/WES_470k_f.30760.0.0_step1_WB.rda"   # HDL step 1 result
 chrom <- 11     # APOC3 gene (chr11)
 bedFile <- "/media/leelabsg-storage1/kisung/WES_470k/merged_by_chr11.norm.bed"
 bimFile <- "/media/leelabsg-storage1/kisung/WES_470k/merged_by_chr11.norm.bim"
@@ -13,8 +15,8 @@ groupFile <- "/media/leelabsg-storage1/DATA/UKBB/WES/groupfile/LOFTEE/loftee_gro
 traitType <- "quantitative"
 geneName <- "APOC3"     # APOC3 gene
 macThreshold <- 10
-collapseLoF <- TRUE    # Collapse LoF variants into one super-variant (default: FALSE)
-outputPrefix <- "test"
+collapseLoF <- FALSE    # Collapse LoF variants into one super-variant (default: FALSE)
+outputPrefix <- "test_HDL_APOC3"
 
 
 # Load SAIGE step 1 results
@@ -329,8 +331,8 @@ system.time({
 
     print(effect_out)
     print(h2_out)
-    # write.table(effect_out, effect_outname, row.names=F, quote=F)
-    # write.table(h2_out, h2_outname, row.names=F, col.names=F, quote=F)
-    # write.table(tau_out, tau_outname, row.names=F, col.names=F, quote=F)
+    write.table(effect_out, effect_outname, row.names=F, quote=F)
+    write.table(h2_out, h2_outname, row.names=F, col.names=F, quote=F)
+    write.table(tau_out, tau_outname, row.names=F, col.names=F, quote=F)
 })
 print("Analysis completed.")
