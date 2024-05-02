@@ -88,10 +88,14 @@ collapse_matrix <- function(objGeno, var_list, sampleID, modglmm, macThreshold =
         return(mat)
     }
     mat <- read_matrix_by_one_marker(objGeno, var_list, sampleID)
-    mat <- mat[which(rownames(mat) %in% modglmm$sampleID), ]
+    mat <- mat[which(rownames(mat) %in% modglmm$sampleID), , drop = FALSE]
     MAF <- colSums(mat) / (2 * nrow(mat))
     idx <- which(((MAF < 0.01) | (MAF > 0.99)) & ((MAF < 1) & (MAF > 0)))
     mat <- mat[, idx]
+    if (ncol(mat) == 0) {
+        print("No variants with MAF < 0.01 or MAF > 0.99")
+        return(mat)
+    }
     mat_rare <- mat[, which(colSums(mat) >= macThreshold)]
     mat_UR <- mat[, which(colSums(mat) < macThreshold)]
     UR_rowsum <- rowSums(mat_UR)
@@ -162,11 +166,10 @@ calc_post_beta <- function(K, G, delta, S, UtY, U) {
 fast_lmm <- function(G, Y) {
     # if sum(G) == 0, let effect size = 0
     print("Estimating beta using FaST-LMM")
-    print(dim(G))
     G[is.na(G)] <- 0
-    print(sum(G))
+    GtG <- t(G) %*% G
     if (sum(G, na.rm = T) == 0) {
-        return (list(as.matrix(0), 0, 1e6))
+        return (list(as.matrix(0), 0, 1e6, GtG))
     }
     Y <- as.matrix(Y)
     K <- diag(1, nrow = ncol(G))
@@ -187,7 +190,6 @@ fast_lmm <- function(G, Y) {
                  method = c("Brent"), lower = 0, upper = 1e6, control = list(fnscale = -1))
     opt_delta <- opt$par
 
-    GtG <- t(G) %*% G
     tr_GtG <- sum(diag(GtG %*% K))
 
     post_beta <- calc_post_beta(K, G, opt_delta, S, UtY, U)
