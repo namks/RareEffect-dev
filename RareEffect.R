@@ -399,130 +399,150 @@ run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFi
     post_beta_mis <- NULL
     post_beta_syn <- NULL
 
-    if (lof_ncol > 0) {
+    # Define matrices by functional annotation
+    if (lof_ncol == 0) {
+        lof_mat <- NULL
+    } else {
         if (traitType == "binary") {
-            fast_lmm_lof <- fast_lmm(G = vG_reordered[,c(1:lof_ncol), drop = F], Y = as.numeric(y_tilde[,2]))
+            lof_mat <- vG_reordered[,c(1:lof_ncol), drop = F]
         } else {
-            fast_lmm_lof <- fast_lmm(G = G_reordered[,c(1:lof_ncol), drop = F], Y = as.numeric(y_tilde[,2]))
+            lof_mat <- G_reordered[,c(1:lof_ncol), drop = F]
         }
+    }
+
+    if (mis_ncol == 0) {
+        mis_mat <- NULL
+    } else {
+        if (traitType == "binary") {
+            mis_mat <- vG_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F]
+        } else {
+            mis_mat <- G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F]
+        }
+    }
+
+    if (syn_ncol == 0) {
+        syn_mat <- NULL
+    } else {
+        if (traitType == "binary") {
+            syn_mat <- vG_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F]
+        } else {
+            syn_mat <- G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F]
+        }
+    }
+
+    # Run FaST-LMM for each functional annotation (estimate marginal variance component tau)
+    if (lof_ncol > 0) {
+        fast_lmm_lof <- fast_lmm(G = lof_mat, Y = as.numeric(y_tilde[,2]))
         post_beta_lof <- fast_lmm_lof[[1]]
         tr_GtG_lof <- fast_lmm_lof[[2]]
         delta_lof <- fast_lmm_lof[[3]]
         GtG_lof <- fast_lmm_lof[[4]]
-        # h2_lof <- (sigma_sq / delta_lof) * tr_GtG_lof / ((sigma_sq / delta_lof) * tr_GtG_lof + sigma_sq * n_samples)
         tau_lof <- as.numeric(sigma_sq / delta_lof)
-
-        # Adjust variance component tau
-        if (traitType == "binary") {
-            tau_lof_mom_marginal <- mom_estimator_marginal(G = vG_reordered[,c(1:lof_ncol), drop = F], y = as.numeric(y_tilde[,2]))
-            tau_mom_joint <- mom_estimator_joint(
-                G1 = vG_reordered[,c(1:lof_ncol), drop = F],
-                G2 = vG_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F],
-                G3 = vG_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F],
-                y = as.numeric(y_tilde[,2])
-            )
-        } else {
-            tau_lof_mom_marginal <- mom_estimator_marginal(G = G_reordered[,c(1:lof_ncol), drop = F], y = as.numeric(y_tilde[,2]))
-            tau_mom_joint <- mom_estimator_joint(
-                G1 = G_reordered[,c(1:lof_ncol), drop = F],
-                G2 = G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F],
-                G3 = G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F],
-                y = as.numeric(y_tilde[,2])
-            )
-        }
-        tau_lof_adj <- tau_lof * tau_mom_joint[1] / tau_lof_mom_marginal[1]
-        if (traitType == "binary") {
-            h2_lof_adj <- max(tau_lof_adj * tr_GtG_lof / (tau_lof_adj * tr_GtG_lof + sigma_sq * sum(1/v)), 0)
-        } else {
-            h2_lof_adj <- max(tau_lof_adj * tr_GtG_lof / (tau_lof_adj * tr_GtG_lof + sigma_sq * n_samples), 0)
-        }
+        tau_lof_mom_marginal <- mom_estimator_marginal(G = lof_mat, y = as.numeric(y_tilde[,2]))
+    } else {
+        tau_lof <- 0
     }
 
     if (mis_ncol > 0) {
-        if (traitType == "binary") {
-            fast_lmm_mis <- fast_lmm(G = vG_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F], Y = as.numeric(y_tilde[,2]))
-        } else {
-            fast_lmm_mis <- fast_lmm(G = G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F], Y = as.numeric(y_tilde[,2]))
-        }
+        fast_lmm_mis <- fast_lmm(G = mis_mat, Y = as.numeric(y_tilde[,2]))
         post_beta_mis <- fast_lmm_mis[[1]]
         tr_GtG_mis <- fast_lmm_mis[[2]]
         delta_mis <- fast_lmm_mis[[3]]
         GtG_mis <- fast_lmm_mis[[4]]
-        # h2_mis <- (sigma_sq / delta_mis) * tr_GtG_mis / ((sigma_sq / delta_mis) * tr_GtG_mis + sigma_sq * n_samples)
         tau_mis <- as.numeric(sigma_sq / delta_mis)
-
-        # Adjust variance component tau
-        if (traitType == "binary") {
-            tau_mis_mom_marginal <- mom_estimator_marginal(G = vG_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F], y = as.numeric(y_tilde[,2]))
-        } else {
-            tau_mis_mom_marginal <- mom_estimator_marginal(G = G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F], y = as.numeric(y_tilde[,2]))
-        }
-        tau_mis_adj <- tau_mis * tau_mom_joint[2] / tau_mis_mom_marginal[1]
-        if (traitType == "binary") {
-            h2_mis_adj <- max(tau_mis_adj * tr_GtG_mis / (tau_mis_adj * tr_GtG_mis + sigma_sq * sum(1/v)), 0)
-        } else {
-            h2_mis_adj <- max(tau_mis_adj * tr_GtG_mis / (tau_mis_adj * tr_GtG_mis + sigma_sq * n_samples), 0)
-        }
+        tau_mis_mom_marginal <- mom_estimator_marginal(G = mis_mat, y = as.numeric(y_tilde[,2]))
+    } else {
+        tau_mis <- 0
     }
 
     if (syn_ncol > 0) {
-        if (traitType == "binary") {
-            fast_lmm_syn <- fast_lmm(G = vG_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F], Y = as.numeric(y_tilde[,2]))
-        } else {
-            fast_lmm_syn <- fast_lmm(G = G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F], Y = as.numeric(y_tilde[,2]))
-        }
+        fast_lmm_syn <- fast_lmm(G = syn_mat, Y = as.numeric(y_tilde[,2]))
         post_beta_syn <- fast_lmm_syn[[1]]
         tr_GtG_syn <- fast_lmm_syn[[2]]
         delta_syn <- fast_lmm_syn[[3]]
         GtG_syn <- fast_lmm_syn[[4]]
-        # h2_syn <- (sigma_sq / delta_syn) * tr_GtG_syn / ((sigma_sq / delta_syn) * tr_GtG_syn + sigma_sq * n_samples)
         tau_syn <- as.numeric(sigma_sq / delta_syn)
+        tau_syn_mom_marginal <- mom_estimator_marginal(G = syn_mat, y = as.numeric(y_tilde[,2]))
+    } else {
+        tau_syn <- 0
+    }
+
+    # Estimate variance component tau jointly (MoM estimator), only if all groups are non-empty
+    if ((lof_ncol > 0) & (mis_ncol > 0) & (syn_ncol > 0)) {
+        tau_mom_joint <- mom_estimator_joint(
+            G1 = lof_mat,
+            G2 = mis_mat,
+            G3 = syn_mat,
+            y = as.numeric(y_tilde[,2])
+        )
 
         # Adjust variance component tau
-        if (traitType == "binary") {
-            tau_syn_mom_marginal <- mom_estimator_marginal(G = vG_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F], y = as.numeric(y_tilde[,2]))
-        } else {
-            tau_syn_mom_marginal <- mom_estimator_marginal(G = G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F], y = as.numeric(y_tilde[,2]))
-        }
+        tau_lof_adj <- tau_lof * tau_mom_joint[1] / tau_lof_mom_marginal[1]
+        tau_mis_adj <- tau_mis * tau_mom_joint[2] / tau_mis_mom_marginal[1]
         tau_syn_adj <- tau_syn * tau_mom_joint[3] / tau_syn_mom_marginal[1]
-        if (traitType == "binary") {
+    } else {
+        # Use marginal variance component tau if any group is empty
+        tau_lof_adj <- tau_lof
+        tau_mis_adj <- tau_mis
+        tau_syn_adj <- tau_syn
+    }
+
+    # Estimate gene-level heritability
+    if (traitType == "binary") {
+        # For binary
+        if (lof_ncol > 0) {
+            h2_lof_adj <- max(tau_lof_adj * tr_GtG_lof / (tau_lof_adj * tr_GtG_lof + sigma_sq * sum(1/v)), 0)
+        } else {
+            h2_lof_adj <- 0
+        }
+
+        if (mis_ncol > 0) {
+            h2_mis_adj <- max(tau_mis_adj * tr_GtG_mis / (tau_mis_adj * tr_GtG_mis + sigma_sq * sum(1/v)), 0)
+        } else {
+            h2_mis_adj <- 0
+        }
+
+        if (syn_ncol > 0) {
             h2_syn_adj <- max(tau_syn_adj * tr_GtG_syn / (tau_syn_adj * tr_GtG_syn + sigma_sq * sum(1/v)), 0)
         } else {
+            h2_syn_adj <- 0
+        }
+    } else {
+        # For quantitative
+        if (lof_ncol > 0) {
+            h2_lof_adj <- max(tau_lof_adj * tr_GtG_lof / (tau_lof_adj * tr_GtG_lof + sigma_sq * n_samples), 0)
+        } else {
+            h2_lof_adj <- 0
+        }
+        
+        if (mis_ncol > 0) {
+            h2_mis_adj <- max(tau_mis_adj * tr_GtG_mis / (tau_mis_adj * tr_GtG_mis + sigma_sq * n_samples), 0)
+        } else {
+            h2_mis_adj <- 0
+        }
+
+        if (syn_ncol > 0) {
             h2_syn_adj <- max(tau_syn_adj * tr_GtG_syn / (tau_syn_adj * tr_GtG_syn + sigma_sq * n_samples), 0)
+        } else {
+            h2_syn_adj <- 0
         }
     }
 
-    # Obtain effect size jointly
+    # Obtain effect size jointly if all groups are non-empty
     if ((tau_lof_adj > 0) & (tau_mis_adj > 0) & (tau_syn_adj > 0)) {
-        if (traitType == "binary") {
-            post_beta <- calculate_joint_blup(
-                G1 = vG_reordered[,c(1:lof_ncol), drop = F],
-                G2 = vG_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F],
-                G3 = vG_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F],
-                tau1 = tau_lof_adj,
-                tau2 = tau_mis_adj,
-                tau3 = tau_syn_adj,
-                Sigma1 = diag(1, ncol(vG_reordered[,c(1:lof_ncol), drop = F])),
-                Sigma2 = diag(1, ncol(vG_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F])),
-                Sigma3 = diag(1, ncol(vG_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F])),
-                psi = as.numeric(sigma_sq),
-                y = as.numeric(y_tilde[,2])
-            )
-        } else {
-            post_beta <- calculate_joint_blup(
-                G1 = G_reordered[,c(1:lof_ncol), drop = F],
-                G2 = G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F],
-                G3 = G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F],
-                tau1 = tau_lof_adj,
-                tau2 = tau_mis_adj,
-                tau3 = tau_syn_adj,
-                Sigma1 = diag(1, ncol(G_reordered[,c(1:lof_ncol), drop = F])),
-                Sigma2 = diag(1, ncol(G_reordered[,c((lof_ncol + 1):(lof_ncol + mis_ncol)), drop = F])),
-                Sigma3 = diag(1, ncol(G_reordered[,c((lof_ncol + mis_ncol + 1):(lof_ncol + mis_ncol + syn_ncol)), drop = F])),
-                psi = as.numeric(sigma_sq),
-                y = as.numeric(y_tilde[,2])
-            )
-        }
+        post_beta <- calculate_joint_blup(
+            G1 = lof_mat,
+            G2 = mis_mat,
+            G3 = syn_mat,
+            tau1 = tau_lof_adj,
+            tau2 = tau_mis_adj,
+            tau3 = tau_syn_adj,
+            Sigma1 = diag(1, ncol(lof_mat)),
+            Sigma2 = diag(1, ncol(mis_mat)),
+            Sigma3 = diag(1, ncol(syn_mat)),
+            psi = as.numeric(sigma_sq),
+            y = as.numeric(y_tilde[,2])
+        )
     } else {
         # If not, calculate beta marginally
         post_beta <- as.vector(rbind(post_beta_lof, post_beta_mis, post_beta_syn))
@@ -531,13 +551,27 @@ run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFi
     post_beta <- as.vector(post_beta)
 
     # Obtain prediction error variance (PEV)
-    diag(GtG_lof) <- diag(GtG_lof) + as.numeric(sigma_sq) / tau_lof_adj
-    diag(GtG_mis) <- diag(GtG_mis) + as.numeric(sigma_sq) / tau_mis_adj
-    diag(GtG_syn) <- diag(GtG_syn) + as.numeric(sigma_sq) / tau_syn_adj
+    if (lof_ncol > 0) {
+        diag(GtG_lof) <- diag(GtG_lof) + as.numeric(sigma_sq) / tau_lof_adj
+        PEV_lof <- diag(solve(GtG_lof))
+    } else {
+        PEV_lof <- NULL
+    }
 
-    PEV_lof <- diag(solve(GtG_lof))
-    PEV_mis <- diag(solve(GtG_mis))
-    PEV_syn <- diag(solve(GtG_syn))
+    if (mis_ncol > 0) {
+        diag(GtG_mis) <- diag(GtG_mis) + as.numeric(sigma_sq) / tau_mis_adj
+        PEV_mis <- diag(solve(GtG_mis))
+    } else {
+        PEV_mis <- NULL
+    }
+
+    if (syn_ncol > 0) {
+        diag(GtG_syn) <- diag(GtG_syn) + as.numeric(sigma_sq) / tau_syn_adj
+        PEV_syn <- diag(solve(GtG_syn))
+    } else {
+        PEV_syn <- NULL
+    }   
+
     PEV_all <- c(PEV_lof, PEV_mis, PEV_syn)
 
     # Apply Firth bias correction for binary phenotype
@@ -577,6 +611,9 @@ run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFi
 
     if (lof_ncol == 1) {
         sgn <- sign(post_beta[1])
+    } else if (lof_ncol == 0) {
+        sgn <- 1
+        print("LoF variant does not exist, so the sign of the effect size is set to 1.")
     } else {
         MAC <- colSums(G_reordered[,c(1:(lof_ncol - 1)), drop = F])
         sgn <- sign(sum(MAC * post_beta[c(1:(lof_ncol - 1))]))
@@ -586,24 +623,23 @@ run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFi
     h2 <- c(h2_lof_adj, h2_mis_adj, h2_syn_adj, h2_all)
     group <- c("LoF", "mis", "syn", "all")
 
-    tau_lof_out <- c(tau_lof, as.numeric(tau_lof_mom_marginal[1, 1]), as.numeric(tau_mom_joint[1, 1]))
-    tau_mis_out <- c(tau_mis, as.numeric(tau_mis_mom_marginal[1, 1]), as.numeric(tau_mom_joint[2, 1]))
-    tau_syn_out <- c(tau_syn, as.numeric(tau_syn_mom_marginal[1, 1]), as.numeric(tau_mom_joint[3, 1]))
-    tau_out <- rbind(tau_lof_out, tau_mis_out, tau_syn_out)
+    # tau_lof_out <- c(tau_lof, as.numeric(tau_lof_mom_marginal[1, 1]), as.numeric(tau_mom_joint[1, 1]))
+    # tau_mis_out <- c(tau_mis, as.numeric(tau_mis_mom_marginal[1, 1]), as.numeric(tau_mom_joint[2, 1]))
+    # tau_syn_out <- c(tau_syn, as.numeric(tau_syn_mom_marginal[1, 1]), as.numeric(tau_mom_joint[3, 1]))
+    # tau_out <- rbind(tau_lof_out, tau_mis_out, tau_syn_out)
 
     effect_out <- as.data.frame(cbind(variant, effect, PEV_all))
     h2_out <- rbind(group, h2)
 
     effect_outname <- paste0(outputPrefix, "_effect.txt")
     h2_outname <- paste0(outputPrefix, "_h2.txt")
-    tau_outname <- paste0(outputPrefix, "_tau.txt")
+    # tau_outname <- paste0(outputPrefix, "_tau.txt")
 
     print(effect_out)
     print(h2_out)
     write.table(effect_out, effect_outname, row.names=F, quote=F)
     write.table(h2_out, h2_outname, row.names=F, col.names=F, quote=F)
-    write.table(tau_out, tau_outname, row.names=F, col.names=F, quote=F)
+    # write.table(tau_out, tau_outname, row.names=F, col.names=F, quote=F)
 
     print("Analysis completed.")
-
 }
