@@ -76,3 +76,10 @@ IID     RareEffect_PRS
 1000090 0
 1000105 0
 ```
+
+## Example output
+
+We estimated variant-level effect size and gene-level heritability for genome-wide significant genes (or top 10 genes) using 393,247 White British individuals in UKB WES data.
+The example output files can be downloaded at:
+  * Variant-level effect size: https://storage.googleapis.com/leelabsg/RareEffect/RareEffect_effect_size.zip
+  * Gene-level signed heritability: https://storage.googleapis.com/leelabsg/RareEffect/RareEffect_h2.zip
