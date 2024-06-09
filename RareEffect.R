@@ -594,7 +594,7 @@ run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFi
         PEV_syn <- NULL
     }
 
-    PEV_all <- c(PEV_lof, PEV_mis, PEV_syn)
+    PEV <- c(PEV_lof, PEV_mis, PEV_syn)
 
     # Apply Firth bias correction for binary phenotype
     if (traitType == "binary") {
@@ -650,9 +650,9 @@ run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFi
     # tau_syn_out <- c(tau_syn, as.numeric(tau_syn_mom_marginal[1, 1]), as.numeric(tau_mom_joint[3, 1]))
     # tau_out <- rbind(tau_lof_out, tau_mis_out, tau_syn_out)
 
-    effect_out <- as.data.frame(cbind(variant, effect, PEV_all))
+    effect_out <- as.data.frame(cbind(variant, effect, PEV))
     effect_out$effect <- as.numeric(effect_out$effect)
-    effect_out$PEV_all <- as.numeric(effect_out$PEV_all)
+    effect_out$PEV <- as.numeric(effect_out$PEV)
     h2_out <- rbind(group, h2)
 
     # Find flipped var and change the sign of the effect size
