@@ -59,12 +59,19 @@ LoF                 mis                 syn                  all
 
 ```
 Rscript calculate_RareEffect_PRS.R \
-    [To be added]
+    --effectFile $PATH_TO_EFFECT_SIZE_FILE \
+    --bedFile $PATH_TO_BED_FILE \
+    --bimFile $PATH_TO_BIM_FILE \
+    --famFile $PATH_TO_FAM_FILE \
+    --groupFile $PATH_TO_GROUP_FILE \
+    --geneName $GENE_NAME \
+    --variantListFile $PATH_TO_VARIANT_LIST_FILE \
+    --outputPrefix $PATH_TO_OUTPUT_FILE
 ```
 
   * Individual RareEffect PRS
 ```
-IID     RareEffect_PRS
+IID     PRS
 1000019 0
 1000022 0
 1000035 0
