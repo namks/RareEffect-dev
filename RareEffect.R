@@ -44,6 +44,7 @@ read_matrix_by_one_marker <- function(objGeno, var_list, sampleID) {
         print("No variants in the list")
         return(mat)
     }
+    is_flipped <- rep(FALSE, length(var_list))
     for (i in 1:length(var_list)) {
         t_GVec <- rep(0, n_samples)
         idx <- which(var_list[i] == objGeno$markerInfo$ID)
@@ -67,7 +68,12 @@ read_matrix_by_one_marker <- function(objGeno, var_list, sampleID) {
             t_isImputation = FALSE
         )
 
-	t_GVec[t_GVec < 0] <- 0     # Convert missing to zero
+	    t_GVec[t_GVec < 0] <- 0     # Convert missing to zero
+        # If MAF > 0.5, flip allele
+        if (sum(t_GVec) > n_samples) {
+            t_GVec <- 2 - t_GVec
+            is_flipped[i] <- TRUE
+        }
         t_GVec_sp <- as(t_GVec, "sparseVector")
         t_GVec_sp_mat <- as(t_GVec_sp, "Matrix")
 
@@ -77,7 +83,7 @@ read_matrix_by_one_marker <- function(objGeno, var_list, sampleID) {
     colnames(mat) <- var_list
     rownames(mat) <- sampleID
 
-    return(mat)
+    return(list(mat, is_flipped))
 }
 
 collapse_matrix <- function(objGeno, var_list, sampleID, modglmm, macThreshold = 10) {
@@ -85,23 +91,28 @@ collapse_matrix <- function(objGeno, var_list, sampleID, modglmm, macThreshold =
     mat <- Matrix::Matrix(0, nrow = n_samples, ncol = 0, sparse = TRUE)
     if (length(var_list) == 0) {
         print("No variants in the list")
-        return(mat)
+        return(list(mat, NULL))
     }
-    mat <- read_matrix_by_one_marker(objGeno, var_list, sampleID)
+    tmp <- read_matrix_by_one_marker(objGeno, var_list, sampleID)
+    mat <- tmp[[1]]
+    is_flipped <- tmp[[2]]
+    flipped_var <- as.data.table(cbind(var_list, is_flipped))
     mat <- mat[which(rownames(mat) %in% modglmm$sampleID), , drop = FALSE]
     MAF <- colSums(mat) / (2 * nrow(mat))
-    idx <- which(((MAF < 0.01) | (MAF > 0.99)) & ((MAF < 1) & (MAF > 0)))
-    mat <- mat[, idx]
-    if (ncol(mat) == 0) {
+    idx_rare <- which((MAF < 0.01) & (colSums(mat) >= macThreshold))
+    idx_UR <- which((MAF > 0) & (colSums(mat) < macThreshold))
+    # mat <- mat[, idx, drop = FALSE]
+    if (length(idx_rare) == 0 & length(idx_UR) == 0) {
         print("No variants with MAF < 0.01 or MAF > 0.99")
-        return(mat)
+        mat <- mat[, idx, drop = FALSE]
+        return(mat, NULL)
     }
-    mat_rare <- mat[, which(colSums(mat) >= macThreshold)]
-    mat_UR <- mat[, which(colSums(mat) < macThreshold)]
+    mat_rare <- mat[, idx_rare, drop = FALSE]
+    mat_UR <- mat[, idx_UR, drop = FALSE]
     UR_rowsum <- rowSums(mat_UR)
     UR_rowsum[which(UR_rowsum > 1)] <- 1
     mat_UR_collapsed <- cbind(mat_rare, UR_rowsum)
-    return(mat_UR_collapsed)
+    return(list(mat_UR_collapsed, flipped_var))
 }
 
 get_range <- function(v) {
@@ -352,13 +363,22 @@ run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFi
 
     # Read genotype matrix
     if (collapseLoF) {
-        lof_mat_collapsed <- collapse_matrix(objGeno, var_by_func_anno[[1]], sampleID, modglmm, macThreshold = 0)
+        lof_mat_collapsed_all <- collapse_matrix(objGeno, var_by_func_anno[[1]], sampleID, modglmm, macThreshold = 0)
+        lof_mat_collapsed <- lof_mat_collapsed_all[[1]]
+        lof_flipped <- lof_mat_collapsed_all[[2]]
         lof_mat_collapsed <- Matrix::Matrix(rowSums(lof_mat_collapsed), ncol = 1, sparse = TRUE, dimnames = list(rownames(lof_mat_collapsed), NULL))
     } else {
-        lof_mat_collapsed <- collapse_matrix(objGeno, var_by_func_anno[[1]], sampleID, modglmm, macThreshold)
+        lof_mat_collapsed_all <- collapse_matrix(objGeno, var_by_func_anno[[1]], sampleID, modglmm, macThreshold)
+        lof_mat_collapsed <- lof_mat_collapsed_all[[1]]
+        lof_flipped <- lof_mat_collapsed_all[[2]]
     }
-    mis_mat_collapsed <- collapse_matrix(objGeno, var_by_func_anno[[2]], sampleID, modglmm, macThreshold)
-    syn_mat_collapsed <- collapse_matrix(objGeno, var_by_func_anno[[3]], sampleID, modglmm, macThreshold)
+    mis_mat_collapsed_all <- collapse_matrix(objGeno, var_by_func_anno[[2]], sampleID, modglmm, macThreshold)
+    mis_mat_collapsed <- mis_mat_collapsed_all[[1]]
+    mis_flipped <- mis_mat_collapsed_all[[2]]
+
+    syn_mat_collapsed_all <- collapse_matrix(objGeno, var_by_func_anno[[3]], sampleID, modglmm, macThreshold)
+    syn_mat_collapsed <- syn_mat_collapsed_all[[1]]
+    syn_flipped <- syn_mat_collapsed_all[[2]]
 
     # Set column name
     if (ncol(lof_mat_collapsed) > 0) {
@@ -516,7 +536,7 @@ run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFi
         } else {
             h2_lof_adj <- 0
         }
-        
+
         if (mis_ncol > 0) {
             h2_mis_adj <- max(tau_mis_adj * tr_GtG_mis / (tau_mis_adj * tr_GtG_mis + sigma_sq * n_samples), 0)
         } else {
@@ -572,7 +592,7 @@ run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFi
         PEV_syn <- diag(solve(GtG_syn))
     } else {
         PEV_syn <- NULL
-    }   
+    }
 
     PEV_all <- c(PEV_lof, PEV_mis, PEV_syn)
 
@@ -631,7 +651,14 @@ run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFi
     # tau_out <- rbind(tau_lof_out, tau_mis_out, tau_syn_out)
 
     effect_out <- as.data.frame(cbind(variant, effect, PEV_all))
+    effect_out$effect <- as.numeric(effect_out$effect)
+    effect_out$PEV_all <- as.numeric(effect_out$PEV_all)
     h2_out <- rbind(group, h2)
+
+    # Find flipped var and change the sign of the effect size
+    flipped_var <- rbind(lof_flipped, mis_flipped, syn_flipped)
+    flipped_var <- flipped_var[is_flipped == TRUE,]$var_list
+    effect_out[which(effect_out$variant %in% flipped_var),]$effect <- -effect_out[which(effect_out$variant %in% flipped_var),]$effect
 
     effect_outname <- paste0(outputPrefix, "_effect.txt")
     h2_outname <- paste0(outputPrefix, "_h2.txt")
