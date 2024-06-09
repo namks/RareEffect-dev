@@ -1,7 +1,7 @@
 # RareEffect
 
 RareEffect is a novel method to estimate the variant-level effect size (beta) and region-level (gene-level) heritability for rare variants.
-RareEffect is integrated into SAIGE and is available in SAIGE version 1.3.5 or higher.
+RareEffect is integrated into SAIGE and is available in SAIGE version 1.3.x or higher.
 
 ## Procedure
 
