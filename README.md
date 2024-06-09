@@ -26,10 +26,18 @@ Rscript run_RareEffect.R \
     --famFile=$PATH_TO_FAM_FILE \
     --macThreshold=10 \
     --collapseLoF=FALSE \
-    --collapsemis=FALSE \
-    --collapsesyn=FALSE \
     --outputPrefix=$PATH_TO_OUTPUT_FILE
 ```
+
+  * rdaFile: SAIGE step 1 output file
+  * chrom: chromosome number (eg. 11)
+  * geneName: name of gene to analyze (eg. APOC3)
+  * groupFile: group file containing variant list and functional annotations.
+  * traitType: type of trait to be analyzed, `binary` or `quantitative`
+  * bedFile, bimFile, famFile: genotype file
+  * macThreshold: minor allele count threshold for ultra-rare variant collapsing
+  * collapseLoF: if true, RareEffect collapses all LoF variants into one super-variant like Burden test (regardless of their MAC)
+  * outputPrefix: path to output
 
 4. RareEffect generates two output files: variant-level effect size and region-level heritability.
 
@@ -68,6 +76,9 @@ Rscript calculate_RareEffect_PRS.R \
     --variantListFile $PATH_TO_VARIANT_LIST_FILE \
     --outputPrefix $PATH_TO_OUTPUT_FILE
 ```
+
+  * effectFile: variant-level effect size output from RareEffect main function
+  * variantListFile: list of common and rare, but non-ultra-rare variants. These variants will not be used for ultra-rare variant scoring.
 
   * Individual RareEffect PRS
 ```
