@@ -1,7 +1,54 @@
 # RareEffect
 
 RareEffect is a novel method to estimate the variant-level effect size (beta) and region-level (gene-level) heritability for rare variants.
-RareEffect is integrated into SAIGE and is available in SAIGE version 1.3.x or higher.
+RareEffect is integrated into SAIGE and is available in SAIGE version released after June 13, 2024 or later.
+
+## System Requirements
+
+RareEffect (integrated in SAIGE) is available on Linux. (We tested RareEffect integrated in SAIGE released on June 13, 2024 (commit hash: 7d7831b) on Ubuntu 20.04 LTS.)
+All software dependencies (including version numbers) are specified in `RareEffect.yml`.
+
+## Installation
+
+We recommend the installation using the conda environment. The installation process took about 10 minutes.
+
+1. Download and install Anaconda (or miniconda).
+2. Create a conda environment using the following command:
+
+```
+conda env create -f RareEffect.yml
+```
+
+This command will make a conda environment named `SAIGE_RE`.
+
+3. Activate `SAIGE_RE` environment and set system variables.
+
+```
+conda activate SAIGE_RE
+FLAGPATH=`which python | sed 's|/bin/python$||'`
+export LDFLAGS="-L${FLAGPATH}/lib"
+export CPPFLAGS="-I${FLAGPATH}/include"
+```
+
+4. Clone SAIGE source code from the GitHub repository using the following command:
+
+```
+src_branch=main
+repo_src_url=https://github.com/saigegit/SAIGE
+git clone --depth 1 -b $src_branch $repo_src_url
+```
+
+5. Install required packages using the following command:
+
+```
+Rscript ./SAIGE/extdata/install_packages.R
+```
+
+6. Install SAIGE package using the following command. This command should be executed from the directory containing the SAIGE code.
+
+```
+R CMD INSTALL .
+```
 
 ## Procedure
 
