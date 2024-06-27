@@ -125,7 +125,7 @@ Rscript calculate_RareEffect_PRS.R \
 ```
 
   * effectFile: variant-level effect size output from RareEffect main function
-  * variantListFile: list of common and rare, but non-ultra-rare variants. These variants will not be used for ultra-rare variant scoring.
+  * variantListFile (optional): list of common and rare, but non-ultra-rare variants. These variants will not be used for ultra-rare variant scoring.
 
   * Individual RareEffect PRS
 ```
@@ -150,6 +150,39 @@ IID	PRS
 1a18	0
 1a19	-1.3901101330302e-07
 1a20	0
+```
+
+## How to run the software on your own data
+
+1. RareEffect main function
+
+```
+Rscript run_RareEffect.R \
+    --rdaFile=$PATH_TO_RDA_FILE \
+    --chrom=$CHR \
+    --geneName=$GENE_NAME \
+    --groupFile=$PATH_TO_GROUP_FILE \
+    --traitType=binary \
+    --bedFile=$PATH_TO_BED_FILE \
+    --bimFile=$PATH_TO_BIM_FILE \
+    --famFile=$PATH_TO_FAM_FILE \
+    --macThreshold=10 \
+    --collapseLoF=FALSE \
+    --outputPrefix=$PATH_TO_OUTPUT_FILE
+```
+
+2. PRS calculation
+
+```
+Rscript calculate_RareEffect_PRS.R \
+    --effectFile $PATH_TO_EFFECT_SIZE_FILE \
+    --bedFile $PATH_TO_BED_FILE \
+    --bimFile $PATH_TO_BIM_FILE \
+    --famFile $PATH_TO_FAM_FILE \
+    --groupFile $PATH_TO_GROUP_FILE \
+    --geneName $GENE_NAME \
+    --variantListFile $PATH_TO_VARIANT_LIST_FILE \
+    --outputPrefix $PATH_TO_OUTPUT_FILE
 ```
 
 ## Example output from the real data
