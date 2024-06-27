@@ -50,30 +50,35 @@ Rscript ./SAIGE/extdata/install_packages.R
 R CMD INSTALL .
 ```
 
-## Procedure
+## Demo (example data)
 
-1. First, run SAIGE step 1. The output file from SAIGE step 1 (`.rda` file) will be used as the input for RareEffect.
-2. The inputs for RareEffect are as follows:
+1. The inputs for RareEffect are as follows:
 
   * Genotype file (plink bed/bim/fam)
   * Group file (same format as the group file for SAIGE-GENE+)
-  * SAIGE step 1 output rda file
+  * SAIGE step 1 output (`.rda` file)
 
-3. Execute the main function of RareEffect. An example command is provided below.
+You can use the example step 1 output in SAIGE package located in the following path. (In the real data analysis, you need to run SAIGE step 1 using your data.)
+
+```
+extdata/output/example_quantitative.rda
+```
+ 
+2. Execute the main function of RareEffect. An example command is provided below. This step will be finished in 1 second for the example data.
 
 ```
 Rscript run_RareEffect.R \
-    --rdaFile=$PATH_TO_RDA_FILE \
-    --chrom=$CHR \
-    --geneName=$GENE_NAME \
-    --groupFile=$PATH_TO_GROUP_FILE \
-    --traitType=binary \
-    --bedFile=$PATH_TO_BED_FILE \
-    --bimFile=$PATH_TO_BIM_FILE \
-    --famFile=$PATH_TO_FAM_FILE \
-    --macThreshold=10 \
-    --collapseLoF=FALSE \
-    --outputPrefix=$PATH_TO_OUTPUT_FILE
+    --rdaFile output/example_quantitative.rda \
+    --chrom 1 \
+    --geneName GENE1 \
+    --groupFile input/group_new_snpid.txt \
+    --traitType quantitative \
+    --bedFile input/genotype_100markers.bed \
+    --bimFile input/genotype_100markers.bim \
+    --famFile input/genotype_100markers.fam \
+    --macThreshold 10 \
+    --collapseLoF FALSE \
+    --outputPrefix output/RareEffect_example_output
 ```
 
   * rdaFile: SAIGE step 1 output file
@@ -86,42 +91,37 @@ Rscript run_RareEffect.R \
   * collapseLoF: if true, RareEffect collapses all LoF variants into one super-variant like Burden test (regardless of their MAC)
   * outputPrefix: path to output
 
-4. RareEffect generates two output files: variant-level effect size and region-level heritability.
+3. You will get two output files: variant-level effect size and region-level heritability.
 
-  * Variant-level effect size
-
+  * `RareEffect_example_output_effect.txt`
+    
 ```
-variant          effect              PEV
-11:116830637:C:T 0.304491201231766   0.00727297925199994
-11:116830638:G:A 0.325660176157425   0.000662034527515423
-11:116830638:G:T 0.21230324192781    0.0645359637154959
-11:116830897:G:T 0.310004879463224   0.060623563613811
-lof_UR           0.261071923418984   0.0869925579756295
-11:116830533:G:A -0.0631819446554343 0.0235133013294374
-11:116830620:C:T -0.0130476721146154 0.0539691054813582
-11:116830787:G:A 0.0448881905903484  0.0317167120002997
-11:116830833:C:A 0.310894962948392   0.0570479313033626
+variant effect PEV
+rs31 3.37458398173721e-07 9.99984127282007e-07
+rs33 -2.01027399753112e-07 9.99983127313752e-07
+lof_UR -5.5315652973989e-07 9.99955129043553e-07
+rs17 -1.3901101330302e-07 9.99988116933531e-07
+mis_UR 7.00908607301673e-07 9.99989116910765e-07
 ```
 
-  * Region-level heritability
+  * `RareEffect_example_output_h2.txt`
 
 ```
-LoF                 mis                 syn                  all
-0.00326766343863732 0.00028977664861778 3.21446473889367e-05 0.00358958473464404
+LoF mis syn all
+7.80000038242669e-08 2.30000021572006e-08 0 1.01000005981467e-07
 ```
 
-5. Using the variant-level effect size from RareEffect, you can calculate the polygenic score in another cohort.
+4. Using the variant-level effect size from RareEffect, you can calculate the polygenic scores. This step will be finished in 1 second for the example data.
 
 ```
 Rscript calculate_RareEffect_PRS.R \
-    --effectFile $PATH_TO_EFFECT_SIZE_FILE \
-    --bedFile $PATH_TO_BED_FILE \
-    --bimFile $PATH_TO_BIM_FILE \
-    --famFile $PATH_TO_FAM_FILE \
-    --groupFile $PATH_TO_GROUP_FILE \
-    --geneName $GENE_NAME \
-    --variantListFile $PATH_TO_VARIANT_LIST_FILE \
-    --outputPrefix $PATH_TO_OUTPUT_FILE
+    --effectFile output/RareEffect_example_output_effect.txt \
+    --bedFile input/genotype_100markers.bed \
+    --bimFile input/genotype_100markers.bim \
+    --famFile input/genotype_100markers.fam \
+    --groupFile input/group_new_snpid.txt \
+    --geneName GENE1 \
+    --outputPrefix output/RareEffect_example_PRS_output
 ```
 
   * effectFile: variant-level effect size output from RareEffect main function
@@ -129,20 +129,30 @@ Rscript calculate_RareEffect_PRS.R \
 
   * Individual RareEffect PRS
 ```
-IID     PRS
-1000019 0
-1000022 0
-1000035 0
-1000046 0
-1000054 0
-1000063 0
-1000078 0.48012911
-1000081 0
-1000090 0
-1000105 0
+IID	PRS
+1a1	0
+1a2	0
+1a3	0
+1a4	0
+1a5	0
+1a6	0
+1a7	0
+1a8	0
+1a9	0
+1a10	0
+1a11	0
+1a12	0
+1a13	0
+1a14	0
+1a15	0
+1a16	-1.3901101330302e-07
+1a17	0
+1a18	0
+1a19	-1.3901101330302e-07
+1a20	0
 ```
 
-## Example output
+## Example output from the real data
 
 We estimated variant-level effect size and gene-level heritability for genome-wide significant genes (or top 10 genes) using 393,247 White British individuals in UKB WES data.
 The example output files can be downloaded at:
