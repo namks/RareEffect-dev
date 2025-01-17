@@ -31,6 +31,8 @@ option_list <- list(
         help="Collapse missense variants into one super-variant (default: FALSE)"),
     make_option(c("--collapsesyn"), type="logical", default=FALSE,
         help="Collapse synonymous variants into one super-variant (default: FALSE)"),
+    make_option(c("--apply_AR"), type="logical", default=FALSE,
+        help="Apply adaptive ridge (approximated L0-regularization) when estimating effect size"),
     make_option(c("--outputPrefix"), type="character", default="",
         help="Path to save output (without extension and gene name)")
 )
@@ -53,5 +55,6 @@ run_RareEffect(
     collapseLoF = args$collapseLoF,
     collapsemis = args$collapsemis,
     collapsesyn = args$collapsesyn,
+    apply_AR = args$apply_AR,
     outputPrefix = args$outputPrefix
 )

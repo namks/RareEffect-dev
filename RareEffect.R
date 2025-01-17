@@ -302,7 +302,75 @@ calculate_joint_blup <- function(G1, G2, G3, tau1, tau2, tau3, Sigma1, Sigma2, S
     return (beta)
 }
 
-run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFile, bimFile, famFile, macThreshold, collapseLoF, collapsemis, collapsesyn, outputPrefix) {
+weight_cal<-function(beta_k, delta=10^(-5), gamma=2, q=0, factor2=1, n_lof, n_mis, n_syn){
+
+	# delta=10^(-5); gamma=2; q=0
+	p <- length(beta_k)
+    p1 <- n_lof
+    p2 <- n_mis
+    p3 <- n_syn 
+	w_out = rep(0,p)
+	idx_null = NULL
+	idx<-which(abs(beta_k) <= delta)
+	if(length(idx)> 0){
+		beta_k1<-beta_k[idx]
+		b_delta = abs(beta_k1/delta)^{gamma}
+		logw1 = (q-2) * log(delta) + (q-2)/gamma* log(1+ b_delta)
+		w_out[idx]<-exp(logw1 * factor2)
+		idx_null = idx
+	}
+	idx<-which(abs(beta_k) > delta)
+	if(length(idx)> 0){
+		beta_k1<-beta_k[idx]
+		b_delta_inv = abs(delta/beta_k1)^{gamma}
+		logw2 = (q-2) * log(abs(beta_k1)) + (q-2)/gamma* log(1+ b_delta_inv)
+		w_out[idx]<-exp(logw2)
+	}
+
+	# make sum of all to be p
+	a1 = 1/w_out
+	a1_out = a1/sum(a1)*p
+	w_out = 1/a1_out
+
+	return(list(w_out=w_out))
+}
+
+adaptive_ridge <- function(X, y, lambda, q = 0, delta = 1e-5, gamma = 2, max_iter = 100, tol = 0.01, n_lof, n_mis, n_syn) {
+    w <- rep(1, ncol(X))     # Initialize weights
+    beta <- rep(0, ncol(X))  # Initialize beta
+    beta_all<-NULL
+    w_all<-NULL
+    idx_set<-1:length(w)
+
+    # save to reduce redundant computation
+    Xy = t(X) %*% y
+    XX = t(X) %*% X
+    for (k in 1:max_iter) {
+
+        W <- diag(w)
+        # using solve is better than calculating inverse matrix first...
+        beta_new <- solve(XX + lambda * W, Xy)  # Ridge regression for initial estimate
+
+
+        # Update weights
+        w_new_re <- weight_cal(beta_new, delta=delta, gamma=gamma, q=q, n_lof=n_lof, n_mis=n_mis, n_syn=n_syn)
+        w_new = w_new_re$w_out
+
+        # print(sqrt(sum((beta_new - beta)^2)))
+        if (sqrt(sum((beta_new - beta)^2)) < sum(beta^2)*tol) {
+            print(paste0("Converged at iteration: ", k))
+            break
+        }
+
+        beta <- beta_new
+        w <- w_new
+        w_all<-cbind(w_all, w)
+        beta_all<-cbind(beta_all, beta)
+    }
+    list(beta = beta, weights = w, iterations = k, beta_all=beta_all, w_all=w_all)
+}
+
+run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFile, bimFile, famFile, macThreshold, collapseLoF, collapsemis, collapsesyn, apply_AR, outputPrefix) {
     # Load SAIGE step 1 results
     load(rdaFile)
 
@@ -571,6 +639,10 @@ run_RareEffect <- function(rdaFile, chrom, geneName, groupFile, traitType, bedFi
     }
 
     post_beta <- as.vector(post_beta)
+    
+    if (apply_AR == TRUE) {
+        post_beta <- as.vector(adaptive_ridge(G_reordered, as.numeric(y_tilde[,2]), lambda, q = 0, delta = 1e-5, gamma = 2, max_iter = 5, tol = 0.01, n_lof = lof_ncol, n_mis = mis_ncol, n_syn = syn_ncol)$beta)
+    }
 
     # Obtain prediction error variance (PEV)
     if (lof_ncol > 0) {
